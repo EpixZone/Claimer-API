@@ -101,7 +101,6 @@ sequelize.sync();
  *       500:
  *         description: Internal server error
  */
-
 const NODE_HOST = process.env.NODE_HOST || 'localhost';
 
 app.post('/verify-snapshot', async (req, res) => {
@@ -158,6 +157,57 @@ app.post('/verify-snapshot', async (req, res) => {
         });
 
         res.status(200).json({ message: 'Snapshot verified and stored successfully' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * @swagger
+ * /verify-address:
+ *   get:
+ *     summary: Verify if an address is valid and not a witness
+ *     parameters:
+ *       - in: query
+ *         name: address
+ *         schema:
+ *           type: string
+ *           example: XG9pb7U3F32QQ4dShADV2v71hdLAFQA2Gf
+ *         required: true
+ *         description: Address to verify
+ *     responses:
+ *       200:
+ *         description: Address verification result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isvalid:
+ *                   type: boolean
+ *                   example: true
+ *                 iswitness:
+ *                   type: boolean
+ *                   example: false
+ *       400:
+ *         description: Error message
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/verify-address', async (req, res) => {
+    const { address } = req.query;
+
+    if (!address) {
+        return res.status(400).json({ error: 'Address is required' });
+    }
+
+    try {
+        // Verify address validity
+        const response = await axios.get(`${NODE_HOST}/api/Node/validateaddress?address=${address}`);
+        const { isvalid, iswitness } = response.data;
+        return res.status(200).json({ isvalid, iswitness });
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Internal server error' });
