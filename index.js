@@ -6,7 +6,6 @@ const swaggerJsDoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 require('dotenv').config();
 
-
 // Setup Express
 const app = express();
 app.use(bodyParser.json());
@@ -103,6 +102,8 @@ sequelize.sync();
  *         description: Internal server error
  */
 
+const NODE_HOST = process.env.NODE_HOST || 'localhost';
+
 app.post('/verify-snapshot', async (req, res) => {
     const { x42_address, epix_address, snapshot_balance } = req.body;
     const signature = req.headers['signature'];
@@ -120,7 +121,7 @@ app.post('/verify-snapshot', async (req, res) => {
 
         // Verify balance by calling external API
         const balanceResponse = await axios.get(
-            `https://snapapi.epix.zone/api/BlockStore/getaddressesbalances?addresses=${x42_address}&minConfirmations=1`
+            `${NODE_HOST}/api/BlockStore/getaddressesbalances?addresses=${x42_address}&minConfirmations=1`
         );
         const { balance } = balanceResponse.data.balances[0];
 
@@ -130,7 +131,7 @@ app.post('/verify-snapshot', async (req, res) => {
 
         // Verify signature by calling external API
         const verificationResponse = await axios.post(
-            'https://snapapi.epix.zone/api/Wallet/verifymessage',
+            `${NODE_HOST}/api/Wallet/verifymessage`,
             {
                 signature,
                 externalAddress: x42_address,
