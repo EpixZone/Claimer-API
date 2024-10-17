@@ -214,6 +214,95 @@ app.get('/verify-address', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /total-claimed:
+ *   get:
+ *     summary: Get total claimed amount and dashboard information
+ *     responses:
+ *       200:
+ *         description: Total claimed amount and other relevant info
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 total_claimed:
+ *                   type: integer
+ *                   example: 123456789
+ *                 total_claims:
+ *                   type: integer
+ *                   example: 100
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/total-claimed', async (req, res) => {
+    try {
+        const totalClaimed = await Snapshot.sum('snapshot_balance');
+        const totalClaims = await Snapshot.count();
+
+        res.status(200).json({
+            total_claimed: totalClaimed,
+            total_claims: totalClaims,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * @swagger
+ * /claims:
+ *   get:
+ *     summary: Get raw JSON and signature for claims
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           example: 1
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *           example: 10
+ *     responses:
+ *       200:
+ *         description: List of claims with raw JSON and signature
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   raw_json:
+ *                     type: object
+ *                   signature:
+ *                     type: string
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/claims', async (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 10;
+
+    try {
+        const claims = await Snapshot.findAll({
+            attributes: ['raw_json', 'signature'],
+            order: [['id', 'DESC']],
+            offset: (page - 1) * pageSize,
+            limit: pageSize,
+        });
+
+        res.status(200).json(claims);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
