@@ -103,6 +103,59 @@ sequelize.sync();
  */
 const NODE_HOST = process.env.NODE_HOST || 'localhost';
 
+/**
+ * @swagger
+ * /check-balance:
+ *   get:
+ *     summary: Check the balance of a given address
+ *     parameters:
+ *       - in: query
+ *         name: address
+ *         schema:
+ *           type: string
+ *           example: XG9pb7U3F32QQ4dShADV2v71hdLAFQA2Gf
+ *         required: true
+ *         description: Address to check balance
+ *     responses:
+ *       200:
+ *         description: Balance of the address
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 balance:
+ *                   type: string
+ *                   example: "1000000000"
+ *       400:
+ *         description: Error message
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/check-balance', async (req, res) => {
+    const { address } = req.query;
+
+    if (!address) {
+        return res.status(400).json({ error: 'Address is required' });
+    }
+
+    try {
+        // Call an external API or node to get the balance
+        const balanceResponse = await axios.get(`${NODE_HOST}/api/BlockStore/getaddressesbalances?addresses=${address}&minConfirmations=1`);
+
+        if (!balanceResponse.data || !balanceResponse.data.balances || balanceResponse.data.balances.length === 0) {
+            return res.status(400).json({ error: 'Unable to retrieve balance for the given address' });
+        }
+
+        const balance = balanceResponse.data.balances[0].balance;
+
+        return res.status(200).json({ balance });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 app.post('/verify-snapshot', async (req, res) => {
     const { x42_address, epix_address, snapshot_balance } = req.body;
     const signature = req.headers['signature'];
