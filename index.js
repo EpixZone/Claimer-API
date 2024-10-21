@@ -65,42 +65,6 @@ const Snapshot = sequelize.define('Snapshot', {
 // Sync the database
 sequelize.sync();
 
-/**
- * @swagger
- * /verify-snapshot:
- *   post:
- *     summary: Verify and store a snapshot
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               x42_address:
- *                 type: string
- *                 example: XG9pb7U3F32QQ4dShADV2v71hdLAFQA2Gf
- *               epix_address:
- *                 type: string
- *                 example: epix1r2357f40wpkruzxu6ss87rvf0hp7hnln246h4x
- *               snapshot_balance:
- *                 type: integer
- *                 example: 69223563046
- *     parameters:
- *       - in: header
- *         name: signature
- *         schema:
- *           type: string
- *         required: true
- *         description: Signature for verification
- *     responses:
- *       200:
- *         description: Snapshot verified and stored successfully
- *       400:
- *         description: Error message
- *       500:
- *         description: Internal server error
- */
 const NODE_HOST = process.env.NODE_HOST || 'localhost';
 
 /**
@@ -156,6 +120,42 @@ app.get('/check-balance', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /verify-snapshot:
+ *   post:
+ *     summary: Verify and store a snapshot
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               x42_address:
+ *                 type: string
+ *                 example: XG9pb7U3F32QQ4dShADV2v71hdLAFQA2Gf
+ *               epix_address:
+ *                 type: string
+ *                 example: epix1r2357f40wpkruzxu6ss87rvf0hp7hnln246h4x
+ *               snapshot_balance:
+ *                 type: integer
+ *                 example: 69223563046
+ *     parameters:
+ *       - in: header
+ *         name: signature
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Signature for verification
+ *     responses:
+ *       200:
+ *         description: Snapshot verified and stored successfully
+ *       400:
+ *         description: Error message
+ *       500:
+ *         description: Internal server error
+ */
 app.post('/verify-snapshot', async (req, res) => {
     const { x42_address, epix_address, snapshot_balance } = req.body;
     const signature = req.headers['signature'];
@@ -355,6 +355,47 @@ app.get('/claims', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+/**
+ * @swagger
+ * /get-blockheight:
+ *   get:
+ *     summary: Get the block height of the address indexer
+ *     responses:
+ *       200:
+ *         description: Block height and tip hash of the address indexer
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 tipHash:
+ *                   type: string
+ *                   example: "180d965fba96850ea57454f4149d4a7b514f8ec0513aacbc7cbf112180ab3e32"
+ *                 tipHeight:
+ *                   type: integer
+ *                   example: 2909914
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/get-blockheight', async (req, res) => {
+    try {
+        // Make a request to get the block height of the address indexer
+        const blockHeightResponse = await axios.get(`${NODE_HOST}/api/BlockStore/addressindexertip`);
+
+        if (!blockHeightResponse.data || !blockHeightResponse.data.tipHeight) {
+            return res.status(400).json({ error: 'Unable to retrieve block height' });
+        }
+
+        const { tipHash, tipHeight } = blockHeightResponse.data;
+
+        return res.status(200).json({ tipHash, tipHeight });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 // Start the server
 const PORT = process.env.PORT || 3000;
