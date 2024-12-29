@@ -176,6 +176,12 @@ app.post('/verify-snapshot', async (req, res) => {
             return res.status(400).json({ error: 'Block height must be at 3,000,000 blocks' });
         }
 
+        // Check if claim period has ended
+        const claimDeadline = new Date('2025-02-10T00:00:00Z');
+        if (new Date() > claimDeadline) {
+            return res.status(400).json({ error: 'Claim period has ended. The deadline was February 10th, 2025 at 00:00:00 UTC' });
+        }
+
         // Check if address already exists
         const existingSnapshot = await Snapshot.findOne({ where: { x42_address } });
         if (existingSnapshot) {
