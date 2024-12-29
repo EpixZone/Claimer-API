@@ -25,7 +25,7 @@ const swaggerOptions = {
             },
         ],
     },
-    apis: ['./index.js'], // Adjust the path to your file accordingly
+    apis: ['./index.js'],
 };
 
 const swaggerDocs = swaggerJsDoc(swaggerOptions);
@@ -165,6 +165,17 @@ app.post('/verify-snapshot', async (req, res) => {
     }
 
     try {
+        // Check block height first
+        const blockHeightResponse = await axios.get(`${NODE_HOST}/api/BlockStore/addressindexertip`);
+        if (!blockHeightResponse.data || !blockHeightResponse.data.tipHeight) {
+            return res.status(400).json({ error: 'Unable to retrieve block height' });
+        }
+
+        const { tipHeight } = blockHeightResponse.data;
+        if (tipHeight != 3000000) {
+            return res.status(400).json({ error: 'Block height must be at 3,000,000 blocks' });
+        }
+
         // Check if address already exists
         const existingSnapshot = await Snapshot.findOne({ where: { x42_address } });
         if (existingSnapshot) {
@@ -396,6 +407,47 @@ app.get('/get-blockheight', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /download-csv:
+ *   get:
+ *     summary: Download a CSV file of all snapshots
+ *     responses:
+ *       200:
+ *         description: CSV file containing Epix addresses and balances
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       500:
+ *         description: Internal server error
+ */
+app.get('/download-csv', async (req, res) => {
+    try {
+        const snapshots = await Snapshot.findAll({
+            attributes: ['epix_address', 'snapshot_balance'],
+            order: [['epix_address', 'ASC']],
+        });
+
+        // Create CSV content
+        const csvContent = snapshots.map(snapshot => {
+            // Convert balance to 8 decimal points
+            const balance = (snapshot.snapshot_balance / 100000000).toFixed(8);
+            return `${snapshot.epix_address},${balance}`;
+        }).join('\n');
+
+        // Set headers for file download
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=snapshots.csv');
+
+        // Send the CSV file
+        res.send(csvContent);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 // Start the server
 const PORT = process.env.PORT || 3000;
