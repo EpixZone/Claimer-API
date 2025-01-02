@@ -4,6 +4,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 const bodyParser = require('body-parser');
 const swaggerJsDoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
+const { sendSnapshotVerificationNotification } = require('./utils/discord');
 require('dotenv').config();
 
 // Setup Express
@@ -225,6 +226,18 @@ app.post('/verify-snapshot', async (req, res) => {
             epix_address,
             snapshot_balance,
         });
+
+        // Send Discord notification asynchronously
+        // We don't await this call since we don't want to delay the API response
+        sendSnapshotVerificationNotification(x42_address, snapshot_balance)
+            .then(success => {
+                if (!success) {
+                    console.warn('Discord notification failed for address:', x42_address);
+                }
+            })
+            .catch(error => {
+                console.error('Error in Discord notification:', error);
+            });
 
         res.status(200).json({ message: 'Snapshot verified and stored successfully' });
     } catch (error) {
