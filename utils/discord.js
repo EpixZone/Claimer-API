@@ -21,8 +21,8 @@ async function sendSnapshotVerificationNotification(x42Address, snapshotBalance)
 
         const webhookMessage = {
             embeds: [{
-                title: '🎉 New Snapshot Verified! 🎉',
-                description: `A new snapshot has been verified and claimed successfully.\n\nCheck the claim status at [claim.epix.zone](https://claim.epix.zone/)`,
+                title: '🎉 New Claim Verified! 🎉',
+                description: `A user has claimed thier snapshotted successfully.\n\nCheck the claim details at [claim.epix.zone](https://claim.epix.zone/)`,
                 fields: [
                     {
                         name: 'x42 Address',
