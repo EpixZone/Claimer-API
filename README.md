@@ -1,70 +1,188 @@
 # Snapshot Verification API
 
-This is a Node.js application that provides an API to verify and store snapshot information. It uses PostgreSQL as the database and Swagger for API documentation.
+## Overview
+A Node.js application that provides an API for verifying and storing x42 blockchain snapshot information. The API validates x42 addresses, verifies balances against the x42 network, and stores verified snapshots in PostgreSQL. Successful verifications trigger Discord notifications.
 
-## Dependencies
+## Prerequisites
 
-To run this application, you'll need the following dependencies:
+- Node.js (v14 or higher)
+- PostgreSQL database
+- x42 node with addressindex enabled
+- Discord webhook URL (for notifications)
 
-- **express**: Web framework for Node.js
-- **axios**: Promise-based HTTP client for making API requests
-- **sequelize**: Node.js ORM for working with PostgreSQL
-- **body-parser**: Middleware for parsing incoming request bodies
-- **swagger-jsdoc**: To generate Swagger documentation from JSDoc comments
-- **swagger-ui-express**: To serve the Swagger UI documentation
-- **glob**: File system pattern matching library (updated to version 9 or higher)
+## Installation
 
-### The balances are verified by calling the BlockCore API on the x42 network
+1. Clone the repository:
+```bash
+git clone https://github.com/EpixZone/Claimer-API.git
+cd Claimer-API
+```
 
-The API: **api/BlockStore/getaddressesbalances**
-<http://localhost:42220/api/BlockStore/getaddressesbalances?addresses=[Address]]&minConfirmations=1>
+2. Install dependencies:
+```bash
+npm install
+```
 
-<https://github.com/EpixZone/Claimer-API/blob/main/index.js#L109>
+3. Create a `.env` file in the root directory:
+```env
+DB_NAME=your_database_name
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
+DB_HOST=localhost
+DB_PORT=5432
+NODE_HOST=http://localhost:42220
+DISCORD_WEBHOOK_URL=your_discord_webhook_url
+PORT=3000
+SWAGGER_HOST=http://localhost:3000
+```
 
-To call this API, you have to enable the `addressindex` in the x42.conf
+## Configuration
 
-    addressindex=1
+### x42 Node Setup
+1. Enable address indexing in your x42.conf file:
+```conf
+addressindex=1
+```
+2. Restart your x42 node after making this change
+
+### Database Setup
+1. Create a PostgreSQL database:
+```sql
+CREATE DATABASE your_database_name;
+```
+2. The tables will be automatically created when you first run the application
 
 ## Running the Application
 
-1. Set up PostgreSQL and create a database for this application.
-2. Update the database credentials in the code (replace `'database'`, `'username'`, `'password'` with your actual credentials).
-3. Run the application with:
-
-```sh
+### Development
+```bash
 node index.js
 ```
 
-The server will run on `http://localhost:3000`.
+### Testing
+```bash
+# Run all tests
+npm test
+
+# Run specific test file
+npm test tests/discord.test.js
+
+# Run tests in watch mode
+npm run test:watch
+```
 
 ## API Documentation
 
-The API documentation is available at:
-
+### Swagger UI
+Access the interactive API documentation at:
 ```
 http://localhost:3000/api-docs
 ```
 
-You can use this interface to test the `/verify-snapshot` endpoint.
+### Key Endpoints
 
-## Endpoints
+#### POST /verify-snapshot
+Verifies and stores snapshot information
 
-### POST /verify-snapshot
+**Request Body:**
+```json
+{
+  "x42_address": "XG9pb7U3F32QQ4dShADV2v71hdLAFQA2Gf",
+  "epix_address": "epix1r2357f40wpkruzxu6ss87rvf0hp7hnln246h4x",
+  "snapshot_balance": 69223563046
+}
+```
 
-Verify and store a snapshot.
+**Headers:**
+- `signature`: Required. Cryptographic signature for verification
 
-#### Request Body
+**Responses:**
+- `200`: Snapshot verified and stored successfully
+- `400`: Validation error (invalid signature, balance mismatch, etc.)
+- `500`: Internal server error
 
-- `x42_address` (string, required): Address to verify
-- `epix_address` (string, required): Epix address
-- `snapshot_balance` (integer, required): Balance to verify
+#### GET /check-balance
+Checks the balance of a given address
 
-#### Headers
+**Parameters:**
+- `address`: x42 address to check
 
-- `signature` (string, required): Signature for verification
+#### GET /verify-address
+Verifies if an address is valid and not a witness
 
-#### Responses
+**Parameters:**
+- `address`: Address to verify
 
-- `200 OK`: Snapshot verified and stored successfully
-- `400 Bad Request`: Error message, e.g., missing signature, balance mismatch, duplicate address, or signature verification failure
-- `500 Internal Server Error`: Error message if something goes wrong on the server
+#### GET /total-claimed
+Returns total claimed amount and number of claims
+
+#### GET /claims
+Returns paginated list of claims with signatures
+
+**Parameters:**
+- `page`: Page number (default: 1)
+- `pageSize`: Items per page (default: 10)
+
+#### GET /get-blockheight
+Returns current block height of the address indexer
+
+#### GET /download-csv
+Downloads a CSV file of all snapshots
+
+## Balance Verification Process
+
+The snapshot verification process is designed to ensure accurate balance verification using the x42 blockchain. Here's a detailed breakdown of how balances are verified:
+
+### Balance Check Process
+1. The API verifies the block height is exactly 3,000,000
+2. The API queries the x42 node using the BlockCore API endpoint:
+   ```
+   GET api/BlockStore/getaddressesbalances?addresses=[Address]&minConfirmations=1
+   ```
+   Example:
+   ```
+   http://localhost:42220/api/BlockStore/getaddressesbalances?addresses=XG9pb7U3F32QQ4dShADV2v71hdLAFQA2Gf&minConfirmations=1
+   ```
+3. The returned balance is compared with the claimed snapshot_balance
+4. The transaction must be signed by the address owner to prove ownership
+
+### x42 Node Requirements
+To support balance verification, your x42 node must:
+1. Have `addressindex` enabled in x42.conf:
+   ```conf
+   addressindex=1
+   ```
+2. Be fully synced to block height 3,000,000
+3. Have the BlockCore API accessible (default port: 42220)
+
+### Full Verification Process
+1. Validates the x42 address format
+2. Verifies the current block height is at 3,000,000
+3. Checks if the claim period is still active (before February 10th, 2025)
+4. Verifies the address hasn't been previously claimed
+5. Validates the balance against the x42 network using BlockCore API
+6. Verifies the cryptographic signature
+7. Stores the verified snapshot
+8. Sends a Discord notification on successful verification
+
+## Development
+
+### Discord Notifications
+Discord notifications are handled by a separate utility function in `utils/discord.js`. You can test this functionality independently:
+
+```javascript
+const { sendSnapshotVerificationNotification } = require('./utils/discord');
+
+// Test the notification
+await sendSnapshotVerificationNotification('x42_address', balance);
+```
+
+## Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+[MIT License](https://github.com/EpixZone/Claimer-API/blob/main/LICENSE)
