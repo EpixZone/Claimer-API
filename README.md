@@ -14,6 +14,17 @@ To run this application, you'll need the following dependencies:
 - **swagger-ui-express**: To serve the Swagger UI documentation
 - **glob**: File system pattern matching library (updated to version 9 or higher)
 
+### The balances are verified by calling the BlockCore API on the x42 network
+
+The API: **api/BlockStore/getaddressesbalances**
+<http://localhost:42220/api/BlockStore/getaddressesbalances?addresses=[Address]]&minConfirmations=1>
+
+<https://github.com/EpixZone/Claimer-API/blob/main/index.js#L109>
+
+To call this API, you have to enable the `addressindex` in the x42.conf
+
+    addressindex=1
+
 ## Running the Application
 
 1. Set up PostgreSQL and create a database for this application.
