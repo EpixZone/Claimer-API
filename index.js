@@ -5,6 +5,7 @@ const bodyParser = require('body-parser');
 const swaggerJsDoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const { sendSnapshotVerificationNotification } = require('./utils/discord');
+const { verifyBalances } = require('./utils/balanceUtils');
 require('dotenv').config();
 
 // Setup Express
@@ -441,13 +442,6 @@ app.get('/get-blockheight', async (req, res) => {
  *     responses:
  *       200:
  *         description: CSV file containing snapshot data
- *         content:
- *           text/csv:
- *             schema:
- *               type: string
- *               format: binary
- *       500:
- *         description: Internal server error
  */
 app.get('/download-csv', async (req, res) => {
     try {
@@ -455,7 +449,7 @@ app.get('/download-csv', async (req, res) => {
         const TARGET_BALANCE = TOTAL_SUPPLY / 2; // 11,844,769
         const detailed = req.query.detailed === 'true';
 
-        // Get all snapshots with appropriate fields
+        // Get all snapshots
         const snapshots = await Snapshot.findAll({
             attributes: detailed
                 ? ['epix_address', 'x42_address', 'snapshot_balance', 'signature', 'raw_json']
@@ -464,34 +458,35 @@ app.get('/download-csv', async (req, res) => {
         });
 
         // Calculate total claimed before deductions
-        const totalClaimedRaw = snapshots.reduce((sum, snapshot) => sum + snapshot.snapshot_balance, 0);
-        const totalClaimedEPIX = totalClaimedRaw / 100000000;
+        const totalClaimedRaw = snapshots.reduce((sum, snapshot) => BigInt(sum) + BigInt(snapshot.snapshot_balance), BigInt(0));
+        const totalClaimedEPIX = Number(totalClaimedRaw) / 100000000;
 
         // Calculate exact multiplier if deduction is needed
         const exactMultiplier = totalClaimedEPIX > TARGET_BALANCE
             ? TARGET_BALANCE / totalClaimedEPIX
             : 1;
 
-        // Set common headers
-        res.setHeader('Content-Type', 'text/csv');
+        let totalFinalBalance = 0;
 
         if (detailed) {
             // Create detailed CSV with all fields
             const csvRows = snapshots.map(snapshot => {
-                const originalBalance = snapshot.snapshot_balance / 100000000;
-                const finalBalance = (originalBalance * exactMultiplier).toFixed(8);
-                const deductionAmount = (originalBalance - parseFloat(finalBalance)).toFixed(8);
-                const deductionPercentage = ((1 - exactMultiplier) * 100).toFixed(2);
+                const originalBalance = Number(snapshot.snapshot_balance) / 100000000;
+                const finalBalance = originalBalance * exactMultiplier;
+                const deductionAmount = originalBalance - finalBalance;
+                const deductionPercentage = ((1 - exactMultiplier) * 100);
+
+                totalFinalBalance += finalBalance;
 
                 return [
                     snapshot.epix_address,
                     snapshot.x42_address,
-                    originalBalance.toFixed(8),                 // Original balance
-                    finalBalance,                               // Balance after deduction
-                    deductionAmount,                            // Amount deducted
-                    deductionPercentage + '%',                  // Deduction percentage
-                    snapshot.signature,                         // Signature
-                    JSON.stringify(snapshot.raw_json)           // Raw JSON data
+                    originalBalance.toFixed(8),
+                    finalBalance.toFixed(8),
+                    deductionAmount.toFixed(8),
+                    deductionPercentage.toFixed(2) + '%',
+                    snapshot.signature,
+                    JSON.stringify(snapshot.raw_json)
                 ].join(',');
             });
 
@@ -503,26 +498,34 @@ app.get('/download-csv', async (req, res) => {
                 'deduction_amount',
                 'deduction_percentage',
                 'signature',
-                'created_at',
-                'updated_at',
                 'raw_json'
             ].join(',');
 
+            verifyBalances(totalClaimedEPIX, totalFinalBalance, TARGET_BALANCE);
+
             const csvContent = headers + '\n' + csvRows.join('\n');
             res.setHeader('Content-Disposition', 'attachment; filename=snapshots_detailed.csv');
+            res.setHeader('Content-Type', 'text/csv');
             return res.send(csvContent);
         } else {
             // Create simple CSV with just address and final balance
             const csvRows = snapshots.map(snapshot => {
-                const originalBalance = snapshot.snapshot_balance / 100000000;
-                const finalBalance = (originalBalance * exactMultiplier).toFixed(8);
-                return `${snapshot.epix_address},${finalBalance}`;
+                const originalBalance = Number(snapshot.snapshot_balance) / 100000000;
+                const finalBalance = originalBalance * exactMultiplier;
+
+                totalFinalBalance += finalBalance;
+
+                return `${snapshot.epix_address},${finalBalance.toFixed(8)}`;
             });
 
+            verifyBalances(totalClaimedEPIX, totalFinalBalance, TARGET_BALANCE);
+
             const csvContent = 'epix_address,balance\n' + csvRows.join('\n');
+            res.setHeader('Content-Type', 'text/csv');
             res.setHeader('Content-Disposition', 'attachment; filename=snapshots.csv');
             return res.send(csvContent);
         }
+
     } catch (error) {
         console.error('Error generating CSV:', error);
         res.status(500).json({ error: 'Internal server error' });
