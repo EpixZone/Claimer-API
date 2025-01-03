@@ -430,10 +430,17 @@ app.get('/get-blockheight', async (req, res) => {
  * @swagger
  * /download-csv:
  *   get:
- *     summary: Download a CSV file of all snapshots
+ *     summary: Download a CSV file of snapshots with optional detailed data
+ *     parameters:
+ *       - in: query
+ *         name: detailed
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: If true, returns all data fields including raw balances and signatures
  *     responses:
  *       200:
- *         description: CSV file containing Epix addresses and balances
+ *         description: CSV file containing snapshot data
  *         content:
  *           text/csv:
  *             schema:
@@ -444,26 +451,80 @@ app.get('/get-blockheight', async (req, res) => {
  */
 app.get('/download-csv', async (req, res) => {
     try {
+        const TOTAL_SUPPLY = 23689538;
+        const TARGET_BALANCE = TOTAL_SUPPLY / 2; // 11,844,769
+        const detailed = req.query.detailed === 'true';
+
+        // Get all snapshots with appropriate fields
         const snapshots = await Snapshot.findAll({
-            attributes: ['epix_address', 'snapshot_balance'],
-            order: [['epix_address', 'ASC']],
+            attributes: detailed
+                ? ['epix_address', 'x42_address', 'snapshot_balance', 'signature', 'raw_json']
+                : ['epix_address', 'snapshot_balance'],
+            order: [['id', 'ASC']],
         });
 
-        // Create CSV content
-        const csvContent = snapshots.map(snapshot => {
-            // Convert balance to 8 decimal points
-            const balance = (snapshot.snapshot_balance / 100000000).toFixed(8);
-            return `${snapshot.epix_address},${balance}`;
-        }).join('\n');
+        // Calculate total claimed before deductions
+        const totalClaimedRaw = snapshots.reduce((sum, snapshot) => sum + snapshot.snapshot_balance, 0);
+        const totalClaimedEPIX = totalClaimedRaw / 100000000;
 
-        // Set headers for file download
+        // Calculate exact multiplier if deduction is needed
+        const exactMultiplier = totalClaimedEPIX > TARGET_BALANCE
+            ? TARGET_BALANCE / totalClaimedEPIX
+            : 1;
+
+        // Set common headers
         res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', 'attachment; filename=snapshots.csv');
 
-        // Send the CSV file
-        res.send(csvContent);
+        if (detailed) {
+            // Create detailed CSV with all fields
+            const csvRows = snapshots.map(snapshot => {
+                const originalBalance = snapshot.snapshot_balance / 100000000;
+                const finalBalance = (originalBalance * exactMultiplier).toFixed(8);
+                const deductionAmount = (originalBalance - parseFloat(finalBalance)).toFixed(8);
+                const deductionPercentage = ((1 - exactMultiplier) * 100).toFixed(2);
+
+                return [
+                    snapshot.epix_address,
+                    snapshot.x42_address,
+                    originalBalance.toFixed(8),                 // Original balance
+                    finalBalance,                               // Balance after deduction
+                    deductionAmount,                            // Amount deducted
+                    deductionPercentage + '%',                  // Deduction percentage
+                    snapshot.signature,                         // Signature
+                    JSON.stringify(snapshot.raw_json)           // Raw JSON data
+                ].join(',');
+            });
+
+            const headers = [
+                'epix_address',
+                'x42_address',
+                'original_balance',
+                'final_balance',
+                'deduction_amount',
+                'deduction_percentage',
+                'signature',
+                'created_at',
+                'updated_at',
+                'raw_json'
+            ].join(',');
+
+            const csvContent = headers + '\n' + csvRows.join('\n');
+            res.setHeader('Content-Disposition', 'attachment; filename=snapshots_detailed.csv');
+            return res.send(csvContent);
+        } else {
+            // Create simple CSV with just address and final balance
+            const csvRows = snapshots.map(snapshot => {
+                const originalBalance = snapshot.snapshot_balance / 100000000;
+                const finalBalance = (originalBalance * exactMultiplier).toFixed(8);
+                return `${snapshot.epix_address},${finalBalance}`;
+            });
+
+            const csvContent = 'epix_address,balance\n' + csvRows.join('\n');
+            res.setHeader('Content-Disposition', 'attachment; filename=snapshots.csv');
+            return res.send(csvContent);
+        }
     } catch (error) {
-        console.error(error);
+        console.error('Error generating CSV:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
