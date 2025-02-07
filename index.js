@@ -447,6 +447,7 @@ app.get('/download-csv', async (req, res) => {
     try {
         const TOTAL_SUPPLY = 23689538;
         const TARGET_BALANCE = TOTAL_SUPPLY / 2; // 11,844,769
+        const TARGET_BALANCE_SATS = BigInt(TARGET_BALANCE * 100000000); // Convert to satoshis
         const detailed = req.query.detailed === 'true';
 
         // Get all snapshots
@@ -457,34 +458,46 @@ app.get('/download-csv', async (req, res) => {
             order: [['id', 'ASC']],
         });
 
-        // Calculate total claimed before deductions
+        // Calculate total claimed before deductions using BigInt for precision
         const totalClaimedRaw = snapshots.reduce((sum, snapshot) => BigInt(sum) + BigInt(snapshot.snapshot_balance), BigInt(0));
         const totalClaimedEPIX = Number(totalClaimedRaw) / 100000000;
 
-        // Calculate exact multiplier if deduction is needed
-        const exactMultiplier = totalClaimedEPIX > TARGET_BALANCE
-            ? TARGET_BALANCE / totalClaimedEPIX
-            : 1;
+        // Calculate exact multiplier if deduction is needed using BigInt arithmetic
+        const multiplierBigInt = totalClaimedRaw > TARGET_BALANCE_SATS
+            ? ((TARGET_BALANCE_SATS * BigInt(100000000)) / totalClaimedRaw)
+            : BigInt(100000000);
 
-        let totalFinalBalance = 0;
+        let totalFinalBalance = 0n; // Using BigInt for accumulation
+        let lastIndex = snapshots.length - 1;
 
         if (detailed) {
             // Create detailed CSV with all fields
-            const csvRows = snapshots.map(snapshot => {
-                const originalBalance = Number(snapshot.snapshot_balance) / 100000000;
-                const finalBalance = originalBalance * exactMultiplier;
-                const deductionAmount = originalBalance - finalBalance;
-                const deductionPercentage = ((1 - exactMultiplier) * 100);
+            const csvRows = snapshots.map((snapshot, index) => {
+                const originalBalance = BigInt(snapshot.snapshot_balance);
+                // Calculate final balance using pure BigInt arithmetic
+                let finalBalance = (originalBalance * multiplierBigInt) / BigInt(100000000);
+
+                if (index === lastIndex) {
+                    // For the last entry, ensure we hit exactly the target
+                    const remaining = TARGET_BALANCE_SATS - totalFinalBalance;
+                    if (remaining > 0n) {
+                        finalBalance = remaining;
+                    }
+                }
 
                 totalFinalBalance += finalBalance;
+
+                // Format balance strings with exact precision
+                const finalBalanceStr = (finalBalance / BigInt(100000000)).toString() + '.' +
+                    (finalBalance % BigInt(100000000)).toString().padStart(8, '0');
 
                 return [
                     snapshot.epix_address,
                     snapshot.x42_address,
-                    originalBalance.toFixed(8),
-                    finalBalance.toFixed(8),
-                    deductionAmount.toFixed(8),
-                    deductionPercentage.toFixed(2) + '%',
+                    originalBalance.toString(),
+                    finalBalanceStr,
+                    (originalBalance - finalBalance).toString(),
+                    ((BigInt(100000000) - multiplierBigInt) * BigInt(100) / BigInt(100000000)).toString() + '%',
                     snapshot.signature,
                     JSON.stringify(snapshot.raw_json)
                 ].join(',');
@@ -501,7 +514,7 @@ app.get('/download-csv', async (req, res) => {
                 'raw_json'
             ].join(',');
 
-            verifyBalances(totalClaimedEPIX, totalFinalBalance, TARGET_BALANCE);
+            verifyBalances(totalClaimedEPIX, Number(totalFinalBalance) / 100000000, TARGET_BALANCE);
 
             const csvContent = headers + '\n' + csvRows.join('\n');
             res.setHeader('Content-Disposition', 'attachment; filename=snapshots_detailed.csv');
@@ -509,16 +522,29 @@ app.get('/download-csv', async (req, res) => {
             return res.send(csvContent);
         } else {
             // Create simple CSV with just address and final balance
-            const csvRows = snapshots.map(snapshot => {
-                const originalBalance = Number(snapshot.snapshot_balance) / 100000000;
-                const finalBalance = originalBalance * exactMultiplier;
+            const csvRows = snapshots.map((snapshot, index) => {
+                const originalBalance = BigInt(snapshot.snapshot_balance);
+                // Calculate final balance using pure BigInt arithmetic
+                let finalBalance = (originalBalance * multiplierBigInt) / BigInt(100000000);
+
+                if (index === lastIndex) {
+                    // For the last entry, ensure we hit exactly the target
+                    const remaining = TARGET_BALANCE_SATS - totalFinalBalance;
+                    if (remaining > 0n) {
+                        finalBalance = remaining;
+                    }
+                }
 
                 totalFinalBalance += finalBalance;
 
-                return `${snapshot.epix_address},${finalBalance.toFixed(8)}`;
+                // Format balance string with exact precision
+                const finalBalanceStr = (finalBalance / BigInt(100000000)).toString() + '.' +
+                    (finalBalance % BigInt(100000000)).toString().padStart(8, '0');
+
+                return `${snapshot.epix_address},${finalBalanceStr}`;
             });
 
-            verifyBalances(totalClaimedEPIX, totalFinalBalance, TARGET_BALANCE);
+            verifyBalances(totalClaimedEPIX, Number(totalFinalBalance) / 100000000, TARGET_BALANCE);
 
             const csvContent = 'epix_address,balance\n' + csvRows.join('\n');
             res.setHeader('Content-Type', 'text/csv');
