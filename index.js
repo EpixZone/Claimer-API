@@ -458,8 +458,29 @@ app.get('/download-csv', async (req, res) => {
             order: [['id', 'ASC']],
         });
 
+        // First, aggregate balances for duplicate EPIX addresses
+        const aggregatedBalances = new Map();
+        const aggregatedDetails = new Map();
+
+        snapshots.forEach(snapshot => {
+            const currentBalance = BigInt(snapshot.snapshot_balance);
+            const existingBalance = aggregatedBalances.get(snapshot.epix_address) || 0n;
+            aggregatedBalances.set(snapshot.epix_address, existingBalance + currentBalance);
+
+            if (detailed) {
+                const details = aggregatedDetails.get(snapshot.epix_address) || [];
+                details.push({
+                    x42_address: snapshot.x42_address,
+                    snapshot_balance: snapshot.snapshot_balance,
+                    signature: snapshot.signature,
+                    raw_json: snapshot.raw_json
+                });
+                aggregatedDetails.set(snapshot.epix_address, details);
+            }
+        });
+
         // Calculate total claimed before deductions using BigInt for precision
-        const totalClaimedRaw = snapshots.reduce((sum, snapshot) => BigInt(sum) + BigInt(snapshot.snapshot_balance), BigInt(0));
+        const totalClaimedRaw = Array.from(aggregatedBalances.values()).reduce((sum, balance) => sum + balance, 0n);
         const totalClaimedEPIX = Number(totalClaimedRaw) / 100000000;
 
         // Calculate exact multiplier if deduction is needed using BigInt arithmetic
@@ -468,12 +489,23 @@ app.get('/download-csv', async (req, res) => {
             : BigInt(100000000);
 
         let totalFinalBalance = 0n; // Using BigInt for accumulation
-        let lastIndex = snapshots.length - 1;
+        const aggregatedEntries = Array.from(aggregatedBalances.entries());
+        let lastIndex = aggregatedEntries.length - 1;
 
         if (detailed) {
             // Create detailed CSV with all fields
-            const csvRows = snapshots.map((snapshot, index) => {
-                const originalBalance = BigInt(snapshot.snapshot_balance);
+            const headers = [
+                'epix_address',
+                'x42_address',
+                'original_balance',
+                'final_balance',
+                'deduction_amount',
+                'deduction_percentage',
+                'signature',
+                'raw_json'
+            ].join(',');
+
+            const csvRows = aggregatedEntries.map(([epixAddress, originalBalance], index) => {
                 // Calculate final balance using pure BigInt arithmetic
                 let finalBalance = (originalBalance * multiplierBigInt) / BigInt(100000000);
 
@@ -491,28 +523,19 @@ app.get('/download-csv', async (req, res) => {
                 const finalBalanceStr = (finalBalance / BigInt(100000000)).toString() + '.' +
                     (finalBalance % BigInt(100000000)).toString().padStart(8, '0');
 
-                return [
-                    snapshot.epix_address,
-                    snapshot.x42_address,
-                    originalBalance.toString(),
+                const details = aggregatedDetails.get(epixAddress);
+                // For each EPIX address, create a row for each x42 source
+                return details.map(d => [
+                    epixAddress,
+                    d.x42_address,
+                    d.snapshot_balance,
                     finalBalanceStr,
-                    (originalBalance - finalBalance).toString(),
-                    ((BigInt(100000000) - multiplierBigInt) * BigInt(100) / BigInt(100000000)).toString() + '%',
-                    snapshot.signature,
-                    JSON.stringify(snapshot.raw_json)
-                ].join(',');
+                    (BigInt(d.snapshot_balance) - finalBalance).toString(),
+                    ((BigInt(100000000) - multiplierBigInt) * BigInt(10000) / BigInt(100000000)).toString().replace(/(\d{2})$/, '.$1') + '%',
+                    d.signature,
+                    JSON.stringify(d.raw_json)
+                ].join(',')).join('\n');
             });
-
-            const headers = [
-                'epix_address',
-                'x42_address',
-                'original_balance',
-                'final_balance',
-                'deduction_amount',
-                'deduction_percentage',
-                'signature',
-                'raw_json'
-            ].join(',');
 
             verifyBalances(totalClaimedEPIX, Number(totalFinalBalance) / 100000000, TARGET_BALANCE);
 
@@ -522,8 +545,7 @@ app.get('/download-csv', async (req, res) => {
             return res.send(csvContent);
         } else {
             // Create simple CSV with just address and final balance
-            const csvRows = snapshots.map((snapshot, index) => {
-                const originalBalance = BigInt(snapshot.snapshot_balance);
+            const csvRows = aggregatedEntries.map(([epixAddress, originalBalance], index) => {
                 // Calculate final balance using pure BigInt arithmetic
                 let finalBalance = (originalBalance * multiplierBigInt) / BigInt(100000000);
 
@@ -541,7 +563,7 @@ app.get('/download-csv', async (req, res) => {
                 const finalBalanceStr = (finalBalance / BigInt(100000000)).toString() + '.' +
                     (finalBalance % BigInt(100000000)).toString().padStart(8, '0');
 
-                return `${snapshot.epix_address},${finalBalanceStr}`;
+                return `${epixAddress},${finalBalanceStr}`;
             });
 
             verifyBalances(totalClaimedEPIX, Number(totalFinalBalance) / 100000000, TARGET_BALANCE);
