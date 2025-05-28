@@ -196,9 +196,9 @@ app.post('/verify-snapshot', async (req, res) => {
         }
 
         // Check if claim period has ended
-        const claimDeadline = new Date('2025-06-06T00:00:00Z');
+        const claimDeadline = new Date('2025-02-10T00:00:00Z');
         if (new Date() > claimDeadline) {
-            return res.status(400).json({ error: 'Claim period has ended. The deadline was June 6th, 2025 at 00:00:00 UTC' });
+            return res.status(400).json({ error: 'Claim period has ended. The deadline was Febuary 10th, 2025 at 00:00:00 UTC' });
         }
 
         // Check if address already exists
