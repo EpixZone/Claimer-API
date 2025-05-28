@@ -40,6 +40,23 @@ const sequelize = new Sequelize(process.env.DB_NAME, process.env.DB_USER, proces
     port: process.env.DB_PORT,
 });
 
+// Helper function to escape CSV fields
+function escapeCsvField(field) {
+    if (field === null || field === undefined) {
+        return '';
+    }
+
+    const stringField = String(field);
+
+    // If the field contains commas, quotes, or newlines, wrap it in quotes
+    // and escape any internal quotes by doubling them
+    if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n') || stringField.includes('\r')) {
+        return '"' + stringField.replace(/"/g, '""') + '"';
+    }
+
+    return stringField;
+}
+
 // Define Snapshot model
 const Snapshot = sequelize.define('Snapshot', {
     raw_json: {
@@ -179,9 +196,9 @@ app.post('/verify-snapshot', async (req, res) => {
         }
 
         // Check if claim period has ended
-        const claimDeadline = new Date('2025-02-10T00:00:00Z');
+        const claimDeadline = new Date('2025-06-06T00:00:00Z');
         if (new Date() > claimDeadline) {
-            return res.status(400).json({ error: 'Claim period has ended. The deadline was February 10th, 2025 at 00:00:00 UTC' });
+            return res.status(400).json({ error: 'Claim period has ended. The deadline was June 6th, 2025 at 00:00:00 UTC' });
         }
 
         // Check if address already exists
@@ -526,14 +543,14 @@ app.get('/download-csv', async (req, res) => {
                 const details = aggregatedDetails.get(epixAddress);
                 // For each EPIX address, create a row for each x42 source
                 return details.map(d => [
-                    epixAddress,
-                    d.x42_address,
-                    d.snapshot_balance,
-                    finalBalanceStr,
-                    (BigInt(d.snapshot_balance) - finalBalance).toString(),
-                    ((BigInt(100000000) - multiplierBigInt) * BigInt(10000) / BigInt(100000000)).toString().replace(/(\d{2})$/, '.$1') + '%',
-                    d.signature,
-                    JSON.stringify(d.raw_json)
+                    escapeCsvField(epixAddress),
+                    escapeCsvField(d.x42_address),
+                    escapeCsvField(d.snapshot_balance),
+                    escapeCsvField(finalBalanceStr),
+                    escapeCsvField((BigInt(d.snapshot_balance) - finalBalance).toString()),
+                    escapeCsvField(((BigInt(100000000) - multiplierBigInt) * BigInt(10000) / BigInt(100000000)).toString().replace(/(\d{2})$/, '.$1') + '%'),
+                    escapeCsvField(d.signature),
+                    escapeCsvField(JSON.stringify(d.raw_json))
                 ].join(',')).join('\n');
             });
 
@@ -563,7 +580,7 @@ app.get('/download-csv', async (req, res) => {
                 const finalBalanceStr = (finalBalance / BigInt(100000000)).toString() + '.' +
                     (finalBalance % BigInt(100000000)).toString().padStart(8, '0');
 
-                return `${epixAddress},${finalBalanceStr}`;
+                return `${escapeCsvField(epixAddress)},${escapeCsvField(finalBalanceStr)}`;
             });
 
             verifyBalances(totalClaimedEPIX, Number(totalFinalBalance) / 100000000, TARGET_BALANCE);
@@ -585,3 +602,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+// Export for testing
+module.exports = { escapeCsvField };
